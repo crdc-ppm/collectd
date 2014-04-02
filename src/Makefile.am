@@ -257,7 +257,7 @@ ceph_la_CPPFLAGS =
 if BUILD_WITH_LIBJSON_C
 #ceph_la_LDFLAGS += $(BUILD_WITH_LIBJSON_C_LDFLAGS)
 ceph_la_LIBADD += $(BUILD_WITH_LIBJSON_C_LIBS)
-ceph_la_CPPFLAGS = $(BUILD_WITH_LIBJSON_C_CPPFLAGS)
+ceph_la_CPPFLAGS += $(BUILD_WITH_LIBJSON_C_CPPFLAGS)
 endif
 collectd_LDADD += "-dlopen" ceph.la
 collectd_DEPENDENCIES += ceph.la
