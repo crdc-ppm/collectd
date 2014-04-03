@@ -1691,7 +1691,7 @@ AC_ARG_WITH(libjson-c, [AS_HELP_STRING([--with-libjson-c@<:@=PREFIX@:>@], [Path 
         else
                 with_libjson_c="yes"
                 with_json_c_cppflags="-I$withval/include"
-                with_json_c_ldflags="-L$withval/lib"
+                with_json_c_ldflags="-L$withval/lib -Wl,-rpath -Wl,$withval/lib"
                 with_json_c_libs="-ljson-c"
         fi; fi
 ],
@@ -1720,16 +1720,27 @@ fi
 
 if test "x$with_libjson_c" = "xpkgconfig"
 then
-        with_json_c_cflags="`$PKG_CONFIG --cflags 'json-c'`"
+        with_json_c_cppflags="`$PKG_CONFIG --cflags 'json-c'`"
         if test $? -ne 0
         then
                 with_libjson_c="no ($PKG_CONFIG failed)"
         fi
-        with_json_c_libs="`$PKG_CONFIG --libs 'json-c'`"
-        with_json_c_ldflags="$with_json_c_libs"
+        with_json_c_ldflags="`$PKG_CONFIG --libs-only-L 'json-c'`"
+        if test "x${with_json_c_ldflags:0:2}" = "x-L"
+        then
+                json_lib_path=`echo "${with_json_c_ldflags:2}" | sed 's/ *$//'`
+                json_lib_path=`find "$json_lib_path" -name libjson-c.so -exec 'dirname' '{}' ';' | head -n 1`
+                if test "x$json_lib_path != "x"
+                then
+                        with_json_c_ldflags="-L$json_lib_path -Wl,-rpath -Wl,$json_lib_path"
+                else
+                        with_libjson_c="no (couldn't find libjson-c.so)"
+                fi
+        fi
+        with_json_c_libs="`$PKG_CONFIG --libs-only-l 'json-c'`"
         if test $? -ne 0
         then
-                with_libjson_c="no ($PKG_CONFIG failed)"
+        	with_libjson_c="no ($PKG_CONFIG failed)"
         fi
 fi
 
@@ -1739,7 +1750,7 @@ then
 fi
 
 SAVE_CPPFLAGS="$CPPFLAGS"
-CPPFLAGS="$CPPFLAGS $with_json_c_cflags"
+CPPFLAGS="$CPPFLAGS $with_json_c_cppflags"
 
 # check for json headers
 if test "x$with_libjson_c" = "xyes"
@@ -1751,6 +1762,9 @@ fi
 
 if test "x$with_libjson_c" = "xyes"
 then
+	SAVE_LDFLAGS="$LDFLAGS"
+	LDFLAGS="$LDFLAGS $with_json_c_ldflags"
+
         SAVE_LIBS="$LIBS"
         LIBS="$LIBS $with_json_c_libs"
 
@@ -1759,6 +1773,7 @@ then
           [with_libjson_c="yes"],
           [with_libjson_c="no (libjson-c library not found"])
 
+	LDFLAGS="$SAVE_LDFLAGS"
         LIBS="$SAVE_LIBS"
 fi
 
