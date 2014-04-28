@@ -2115,7 +2115,7 @@ then
         then
                 json_lib_path=`echo "${with_json_c_ldflags:2}" | sed 's/ *$//'`
                 json_lib_path=`find "$json_lib_path" -name libjson-c.so -exec 'dirname' '{}' ';' | head -n 1`
-                if test "x$json_lib_path != "x"
+                if test "x$json_lib_path" != "x"
                 then
                         with_json_c_ldflags="-L$json_lib_path -Wl,-rpath -Wl,$json_lib_path"
                 else
