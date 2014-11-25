@@ -1256,7 +1256,7 @@ cconn_process_data(struct cconn *io, yajl_struct *yajl, yajl_handle hand)
 static int cconn_process_json(struct cconn *io)
 {
     if((io->request_type != ASOK_REQ_DATA) &&
-            (io->request_type != ASOK_REQ_SCHEMA)) &&
+            (io->request_type != ASOK_REQ_SCHEMA) &&
             (io->request_type != ASOK_REQ_FSID))
     {
         return -EDOM;
