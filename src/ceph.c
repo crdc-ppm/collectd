@@ -1225,30 +1225,18 @@ cconn_process_data(struct cconn *io, yajl_struct *yajl, yajl_handle hand)
         size_t chars_remaining = (size_t)DATA_MAX_NAME_LEN;
         sstrncpy(tmp_plugin_instance, io->d->name, chars_remaining);
         chars_remaining -= strlen(io->d->name);
-        if(io->d->cluster[0] == '\0')
+        if((io->d->cluster[0] != '\0') && (chars_remaining >= (strlen(io->d->cluster)+1)))
         {
-            if(chars_remaining >= (FSID_STRING_LEN+1))
-            {
-                strncat(tmp_plugin_instance, "-", chars_remaining);
-                chars_remaining -= 1;
-                strncat(tmp_plugin_instance, io->d->fsid, chars_remaining);
-            }
-        }
-        else
-        {
-            if(chars_remaining >= (strlen(io->d->cluster)+1))
-            {
-                strncat(tmp_plugin_instance, "-", chars_remaining);
-                chars_remaining -= 1;
-                strncat(tmp_plugin_instance, io->d->cluster, chars_remaining);
-                chars_remaining -= strlen(io->d->cluster);
-                if(chars_remaining >= (FSID_STRING_LEN+1))
-                {
-                    strncat(tmp_plugin_instance, ".", chars_remaining);
-                    chars_remaining -= 1;
-                    strncat(tmp_plugin_instance, io->d->fsid, chars_remaining);
-                }
-            }
+           strncat(tmp_plugin_instance, "-", chars_remaining);
+           chars_remaining -= 1;
+           strncat(tmp_plugin_instance, io->d->cluster, chars_remaining);
+           chars_remaining -= strlen(io->d->cluster);
+           if(chars_remaining >= (FSID_STRING_LEN+1))
+           {
+               strncat(tmp_plugin_instance, ".", chars_remaining);
+               chars_remaining -= 1;
+               strncat(tmp_plugin_instance, io->d->fsid, chars_remaining);
+           }
         }
         sstrncpy(vl.plugin_instance, tmp_plugin_instance, sizeof(vl.plugin_instance));
         sstrncpy(vl.type, io->d->dset[i].type, sizeof(vl.type));
