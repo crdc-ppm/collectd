@@ -776,10 +776,16 @@ static int cc_parse_cluster_name(struct ceph_daemon *cd)
             break;
         }
     }
+    
+    if(daemon_type_index == -1)
+    {
+         WARNING("Could not parse clustername from admin socket(%s), daemon type not supported?", cd->asok_path);
+         return 0;
+    }
 
     char * asok_str = ".asok";
     char *tmp_str = strstr(asok_name, asok_str);
-    if(daemon_type_index == -1 || !tmp_str)
+    if(!tmp_str)
     {
         ERROR("Bad ceph socket path (%s). Was not an admin socket.", cd->asok_path);
         return -1;
@@ -1219,17 +1225,29 @@ cconn_process_data(struct cconn *io, yajl_struct *yajl, yajl_handle hand)
         size_t chars_remaining = (size_t)DATA_MAX_NAME_LEN;
         sstrncpy(tmp_plugin_instance, io->d->name, chars_remaining);
         chars_remaining -= strlen(io->d->name);
-        if(chars_remaining >= (strlen(io->d->cluster)+1))
+        if(io->d->cluster[0] == '\0')
         {
-            strncat(tmp_plugin_instance, "-", chars_remaining);
-            chars_remaining -= 1;
-            strncat(tmp_plugin_instance, io->d->cluster, chars_remaining);
-            chars_remaining -= strlen(io->d->cluster);
             if(chars_remaining >= (FSID_STRING_LEN+1))
             {
-                strncat(tmp_plugin_instance, ".", chars_remaining);
+                strncat(tmp_plugin_instance, "-", chars_remaining);
                 chars_remaining -= 1;
                 strncat(tmp_plugin_instance, io->d->fsid, chars_remaining);
+            }
+        }
+        else
+        {
+            if(chars_remaining >= (strlen(io->d->cluster)+1))
+            {
+                strncat(tmp_plugin_instance, "-", chars_remaining);
+                chars_remaining -= 1;
+                strncat(tmp_plugin_instance, io->d->cluster, chars_remaining);
+                chars_remaining -= strlen(io->d->cluster);
+                if(chars_remaining >= (FSID_STRING_LEN+1))
+                {
+                    strncat(tmp_plugin_instance, ".", chars_remaining);
+                    chars_remaining -= 1;
+                    strncat(tmp_plugin_instance, io->d->fsid, chars_remaining);
+                }
             }
         }
         sstrncpy(vl.plugin_instance, tmp_plugin_instance, sizeof(vl.plugin_instance));
