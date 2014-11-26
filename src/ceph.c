@@ -749,6 +749,12 @@ static int cc_parse_cluster_name(struct ceph_daemon *cd)
     int last_index_slash = -1, daemon_type_index = -1;
     size_t i;
 
+    if(!(cd->asok_path[0] == '/'))
+    {
+        ERROR("ceph plugin(name=%s): administrative socket paths must begin "
+                "with '/' Can't parse: '%s'\n", cd->name, cd->asok_path);
+        return -EINVAL;
+    }
     tmp = strchr(cd->asok_path, search_char);
     while(tmp)
     {
@@ -780,7 +786,7 @@ static int cc_parse_cluster_name(struct ceph_daemon *cd)
     if(daemon_type_index == -1)
     {
          WARNING("Could not parse clustername from admin socket(%s), daemon type not supported?", cd->asok_path);
-         return 0;
+         return -1;
     }
 
     char * asok_str = ".asok";
@@ -847,13 +853,7 @@ static int cc_add_daemon_config(oconfig_item_t *ci)
         "socket path.\n", cd.name);
         return -EINVAL;
     }
-    else if(!((cd.asok_path[0] == '/') ||
-            (cd.asok_path[0] == '.' && cd.asok_path[1] == '/')))
-    {
-        ERROR("ceph plugin(name=%s): administrative socket paths must begin "
-                "with '/' or './' Can't parse: '%s'\n", cd.name, cd.asok_path);
-        return -EINVAL;
-    }
+    
     array = realloc(g_daemons,
                     sizeof(struct ceph_daemon *) * (g_num_daemons + 1));
     if(array == NULL)
@@ -883,9 +883,15 @@ static int ceph_config(oconfig_item_t *ci)
         if(strcasecmp("Daemon", child->key) == 0)
         {
             ret = cc_add_daemon_config(child);
-            if(ret)
+            if(ret == ENOMEM)
             {
+                ERROR("ceph plugin: Couldn't allocate memory");
                 return ret;
+            }
+            else if(ret)
+            {
+                //process other daemons and ignore this one
+                continue;
             }
         }
         else if(strcasecmp("LongRunAvgLatency", child->key) == 0)
