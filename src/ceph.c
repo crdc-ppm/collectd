@@ -74,15 +74,6 @@
 /** Maximum path length for a UNIX domain socket on this system */
 #define UNIX_DOMAIN_SOCK_PATH_MAX (sizeof(((struct sockaddr_un*)0)->sun_path))
 
-#define CEPH_ASOK_REQ_PRE "{ \"prefix\": \""
-#define CEPH_ASOK_REQ_POST "\" }\n"
-#define CEPH_FSID_REQ "config get\",\"var\": \"fsid"
-#define FSID_STRING_LEN 37
-
-#define CEPH_DAEMON_TYPES_NUM 3
-const char * ceph_daemon_types [CEPH_DAEMON_TYPES_NUM] =
-                { "osd", "mon", "mds" };
-
 /** Yajl callback returns */
 #define CEPH_CB_CONTINUE 1
 #define CEPH_CB_ABORT 0
@@ -100,12 +91,6 @@ struct ceph_daemon
     uint32_t version;
     /** daemon name **/
     char name[DATA_MAX_NAME_LEN];
-
-    /** cluster fsid **/
-    char fsid[FSID_STRING_LEN];
-
-    /** cluster name **/
-    char cluster[DATA_MAX_NAME_LEN];
 
     int dset_num;
 
@@ -214,7 +199,6 @@ enum request_type_t
     ASOK_REQ_VERSION = 0,
     ASOK_REQ_DATA = 1,
     ASOK_REQ_SCHEMA = 2,
-    ASOK_REQ_FSID = 3,
     ASOK_REQ_NONE = 1000,
 };
 
@@ -323,26 +307,6 @@ ceph_cb_number(void *ctx, const char *number_val, yajl_len_t number_len)
 static int ceph_cb_string(void *ctx, const unsigned char *string_val, 
         yajl_len_t string_len)
 {
-    yajl_struct *yajl = (yajl_struct*)ctx;
-    if((yajl->depth != 1) || (strcmp(yajl->state[0].key,"fsid") != 0) ||
-                                            (string_len != (FSID_STRING_LEN-1)))
-    {
-        /** this is not FSID - ignore it */
-        DEBUG("yajl ceph_cb_string, ignoring %s", string_val);
-        if(yajl->depth > 0)
-        {
-            yajl->depth = (yajl->depth -1);
-        }
-        return CEPH_CB_CONTINUE;
-    }
-    char buffer[string_len+1];
-    memcpy(buffer, string_val, string_len);
-    buffer[sizeof(buffer) - 1] = 0;
-    char key[128];
-    ssnprintf(key, yajl->state[0].key_len, "%s", yajl->state[0].key);
-
-    yajl->handler(yajl->handler_arg, buffer, key);
-    yajl->depth = (yajl->depth - 1);
     return CEPH_CB_CONTINUE;
 }
 
@@ -743,63 +707,6 @@ static int cc_handle_bool(struct oconfig_item_s *item, int *dest)
     return 0;
 }
 
-static int cc_parse_cluster_name(struct ceph_daemon *cd)
-{
-    char search_char = '/', *tmp, asok_name[UNIX_DOMAIN_SOCK_PATH_MAX];
-    int last_index_slash = -1, daemon_type_index = -1;
-    size_t i;
-
-    if(!(cd->asok_path[0] == '/'))
-    {
-        ERROR("ceph plugin(name=%s): administrative socket paths must begin "
-                "with '/' Can't parse: '%s'\n", cd->name, cd->asok_path);
-        return -EINVAL;
-    }
-    tmp = strchr(cd->asok_path, search_char);
-    while(tmp)
-    {
-        last_index_slash = (tmp-(cd->asok_path+1));
-        tmp = strchr(tmp+1,search_char);
-    }
-
-    if(last_index_slash == -1)
-    {
-        ERROR("Bad ceph socket path. Please specify the absolute path.");
-        return -1;
-    }
-
-    size_t asok_name_length = (size_t)(strlen(cd->asok_path)-last_index_slash-2);
-
-    memcpy(asok_name, &cd->asok_path[last_index_slash+2], asok_name_length);
-    asok_name[asok_name_length] = '\0';
-
-    for(i = 0; i < CEPH_DAEMON_TYPES_NUM; i++)
-    {
-        char * tmp_str = strstr(asok_name, ceph_daemon_types[i]);
-        if(tmp_str)
-        {
-            daemon_type_index = (tmp_str-(asok_name+1));
-            break;
-        }
-    }
-    
-    if(daemon_type_index == -1)
-    {
-         WARNING("Could not parse clustername from admin socket(%s), daemon type not supported?", cd->asok_path);
-         return -1;
-    }
-
-    char * asok_str = ".asok";
-    char *tmp_str = strstr(asok_name, asok_str);
-    if(!tmp_str)
-    {
-        ERROR("Bad ceph socket path (%s). Was not an admin socket.", cd->asok_path);
-        return -1;
-    }
-    memcpy(cd->cluster, asok_name, (size_t)daemon_type_index);
-    return 0;
-}
-
 static int cc_add_daemon_config(oconfig_item_t *ci)
 {
     int ret, i;
@@ -830,12 +737,6 @@ static int cc_add_daemon_config(oconfig_item_t *ci)
             {
                 return ret;
             }
-            
-            ret = cc_parse_cluster_name(&cd);
-            if(ret)
-            {
-                return ret;
-            }
         }
         else
         {
@@ -851,6 +752,13 @@ static int cc_add_daemon_config(oconfig_item_t *ci)
     {
         ERROR("ceph plugin(name=%s): you must configure an administrative "
         "socket path.\n", cd.name);
+        return -EINVAL;
+    }
+    else if(!((cd.asok_path[0] == '/') ||
+            (cd.asok_path[0] == '.' && cd.asok_path[1] == '/')))
+    {
+        ERROR("ceph plugin(name=%s): administrative socket paths must begin "
+                "with '/' or './' Can't parse: '%s'\n", cd.name, cd.asok_path);
         return -EINVAL;
     }
     
@@ -949,19 +857,6 @@ node_handler_define_schema(void *arg, const char *val, const char *key)
     DEBUG("\nceph_daemon_add_ds_entry(d=%s,key=%s,pc_type=%04x)",
             d->name, key, pc_type);
     return ceph_daemon_add_ds_entry(d, key, pc_type);
-}
-
-static int
-node_handler_parse_fsid(void *arg, const char *val, const char *key)
-{
-    struct ceph_daemon *d = (struct ceph_daemon *) arg;
-    int res = snprintf(d->fsid, FSID_STRING_LEN, "%s", val);
-    if(res != (FSID_STRING_LEN-1))
-    {
-        WARNING("Could not set d->fsid, wrote %d bytes", res);
-    }
-    DEBUG("Set daemon->fsid to %s", d->fsid);
-    return 0;
 }
 
 static int add_last(const char *dset_n, const char *ds_n, double cur_sum,
@@ -1227,24 +1122,7 @@ cconn_process_data(struct cconn *io, yajl_struct *yajl, yajl_handle hand)
         value_list_t vl = VALUE_LIST_INIT;
         sstrncpy(vl.host, hostname_g, sizeof(vl.host));
         sstrncpy(vl.plugin, "ceph", sizeof(vl.plugin));
-        char tmp_plugin_instance[DATA_MAX_NAME_LEN];
-        size_t chars_remaining = (size_t)DATA_MAX_NAME_LEN;
-        sstrncpy(tmp_plugin_instance, io->d->name, chars_remaining);
-        chars_remaining -= strlen(io->d->name);
-        if((io->d->cluster[0] != '\0') && (chars_remaining >= (strlen(io->d->cluster)+1)))
-        {
-           strncat(tmp_plugin_instance, "-", chars_remaining);
-           chars_remaining -= 1;
-           strncat(tmp_plugin_instance, io->d->cluster, chars_remaining);
-           chars_remaining -= strlen(io->d->cluster);
-           if(chars_remaining >= (FSID_STRING_LEN+1))
-           {
-               strncat(tmp_plugin_instance, ".", chars_remaining);
-               chars_remaining -= 1;
-               strncat(tmp_plugin_instance, io->d->fsid, chars_remaining);
-           }
-        }
-        sstrncpy(vl.plugin_instance, tmp_plugin_instance, sizeof(vl.plugin_instance));
+        sstrncpy(vl.plugin_instance, io->d->name, sizeof(vl.plugin_instance));
         sstrncpy(vl.type, io->d->dset[i].type, sizeof(vl.type));
         vl.values = vtmp->vh[i].values;
         vl.values_len = io->d->dset[i].ds_num;
@@ -1268,8 +1146,7 @@ cconn_process_data(struct cconn *io, yajl_struct *yajl, yajl_handle hand)
 static int cconn_process_json(struct cconn *io)
 {
     if((io->request_type != ASOK_REQ_DATA) &&
-            (io->request_type != ASOK_REQ_SCHEMA) &&
-            (io->request_type != ASOK_REQ_FSID))
+            (io->request_type != ASOK_REQ_SCHEMA))
     {
         return -EDOM;
     }
@@ -1302,11 +1179,6 @@ static int cconn_process_json(struct cconn *io)
             break;
         case ASOK_REQ_SCHEMA:
             io->yajl.handler = node_handler_define_schema;
-            io->yajl.handler_arg = io->d;
-            result = traverse_json(io->json, io->json_len, hand);
-            break;
-        case ASOK_REQ_FSID:
-            io->yajl.handler = node_handler_parse_fsid;
             io->yajl.handler_arg = io->d;
             result = traverse_json(io->json, io->json_len, hand);
             break;
@@ -1374,17 +1246,9 @@ static int cconn_handle_event(struct cconn *io)
             return -EDOM;
         case CSTATE_WRITE_REQUEST:
         {
-            char cmd[64];
-            if(io->request_type == ASOK_REQ_FSID)
-            {
-                snprintf(cmd, sizeof(cmd), "%s%s%s", CEPH_ASOK_REQ_PRE,
-                        CEPH_FSID_REQ ,CEPH_ASOK_REQ_POST);
-            }
-            else
-            {
-                snprintf(cmd, sizeof(cmd), "%s%d%s", CEPH_ASOK_REQ_PRE,
-                        io->request_type, CEPH_ASOK_REQ_POST);
-            }
+            char cmd[32];
+            snprintf(cmd, sizeof(cmd), "%s%d%s", "{ \"prefix\": \"",
+                    io->request_type, "\" }\n");
             size_t cmd_len = strlen(cmd);
             RETRY_ON_EINTR(ret,
                   write(io->asok, ((char*)&cmd) + io->amt, cmd_len - io->amt));
@@ -1435,7 +1299,7 @@ static int cconn_handle_event(struct cconn *io)
                         "version %d", io->d->name, io->d->version);
                 io->amt = 0;
                 cconn_close(io);
-                io->request_type = ASOK_REQ_FSID;
+                io->request_type = ASOK_REQ_SCHEMA;
             }
             return 0;
         }
@@ -1484,15 +1348,7 @@ static int cconn_handle_event(struct cconn *io)
                     return ret;
                 }
                 cconn_close(io);
-                if(io->request_type == ASOK_REQ_FSID)
-                {
-                    io->amt = 0;
-                    io->request_type = ASOK_REQ_SCHEMA;
-                }
-                else
-                {
-                    io->request_type = ASOK_REQ_NONE;
-                }
+                io->request_type = ASOK_REQ_NONE;
             }
             return 0;
         }
