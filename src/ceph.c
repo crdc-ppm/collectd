@@ -105,12 +105,10 @@ struct ceph_daemon
     /** daemon name **/
     char name[DATA_MAX_NAME_LEN];
 
-    int dset_num;
-
     /** Path to the socket that we use to talk to the ceph daemon */
     char asok_path[UNIX_DOMAIN_SOCK_PATH_MAX];
 
-   /** Number of counters */
+    /** Number of counters */
     int ds_num;
     /** Track ds types */
     uint32_t *ds_types;
@@ -167,7 +165,7 @@ static struct ceph_daemon **g_daemons = NULL;
 static int g_num_daemons = 0;
 
 /**
- * A set of values_t data that we build up in memory while parsing the JSON.
+ * A set of data that we build up in memory while parsing the JSON.
  */
 struct values_tmp
 {
