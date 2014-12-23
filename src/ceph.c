@@ -855,6 +855,23 @@ static int update_last(const char *ds_n, int index, double cur_sum,
 }
 
 /**
+ * If using index guess failed (shouldn't happen, but possible if counters
+ * get rearranged), resort to searching for counter name
+ */
+static int backup_search_for_last_avg(const char *ds_n)
+{
+    int i = 0;
+    for(; i < last_idx; i++)
+    {
+        if(strcmp(last_poll_data[i]->ds_name, ds_n) == 0)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/**
  * Calculate average b/t current data and last poll data
  * if last poll data exists
  */
@@ -863,20 +880,36 @@ static double get_last_avg(const char *ds_n, int index,
 {
     double result = -1.1, sum_delt = 0.0;
     uint64_t count_delt = 0;
-    if((last_idx > index) &&
-            (strcmp(last_poll_data[index]->ds_name, ds_n) == 0) &&
-            (cur_count > last_poll_data[index]->last_count))
+    int tmp_index = 0;
+    if(last_idx > index)
     {
-        sum_delt = (cur_sum - last_poll_data[index]->last_sum);
-        count_delt = (cur_count - last_poll_data[index]->last_count);
-        result = (sum_delt / count_delt);
+        if(strcmp(last_poll_data[index]->ds_name, ds_n) == 0)
+        {
+            tmp_index = index;
+        }
+        //test previous index
+        else if((index > 0) && (strcmp(last_poll_data[index-1]->ds_name, ds_n) == 0))
+        {
+            tmp_index = (index - 1);
+        }
+        else
+        {
+            tmp_index = backup_search_for_last_avg(ds_n);
+        }
+
+        if((tmp_index > -1) && (cur_count > last_poll_data[tmp_index]->last_count))
+        {
+            sum_delt = (cur_sum - last_poll_data[tmp_index]->last_sum);
+            count_delt = (cur_count - last_poll_data[tmp_index]->last_count);
+            result = (sum_delt / count_delt);
+        }
     }
 
     if(result == -1.1)
     {
         result = NAN;
     }
-    if(update_last(ds_n, index, cur_sum, cur_count) == -ENOMEM)
+    if(update_last(ds_n, tmp_index, cur_sum, cur_count) == -ENOMEM)
     {
         return -ENOMEM;
     }
